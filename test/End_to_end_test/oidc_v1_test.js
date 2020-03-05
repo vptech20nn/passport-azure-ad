@@ -51,8 +51,7 @@ var test_parameters = {};
 // tenant specific endpoint configurations
 var config_template, hybrid_config, hybrid_config_alternative, code_config,
 implicit_config, code_config_query, hybrid_config_noIssuer, hybrid_config_with_scope,
-hybrid_config_passReqToCallback, 
-hybrid_config_clientAssertion, code_config_clientAssertion = {};
+hybrid_config_passReqToCallback = {};
 
 // common endpoint configurations
 var config_template_common_endpoint, hybrid_config_common_endpoint, 
@@ -63,10 +62,7 @@ hybrid_config_common_endpoint_with_scope = {};
 // invalid configurations
 var hybrid_config_common_endpoint_wrong_issuer, 
 hybrid_config_common_endpoint_short_lifetime, 
-hybrid_config_common_endpoint_wrong_secret, 
-hybrid_config_clientAssertion_invalid_pemKey,
-hybrid_config_clientAssertion_unregistered_pemKey,
-hybrid_config_clientAssertion_wrong_thumbprint = {};
+hybrid_config_common_endpoint_wrong_secret = {};
 
 // drivers needed for the tests
 var driver;
@@ -146,18 +142,6 @@ var apply_test_parameters = (done) => {
   hybrid_config_passReqToCallback = JSON.parse(JSON.stringify(config_template));
   hybrid_config_passReqToCallback.passReqToCallback = true;
 
-  // 6. Hybird flow using client assertion
-  hybrid_config_clientAssertion = JSON.parse(JSON.stringify(hybrid_config));
-  hybrid_config_clientAssertion.thumbprint = test_parameters.thumbprint;
-  hybrid_config_clientAssertion.privatePEMKey = test_parameters.privatePEMKey;
-  hybrid_config_clientAssertion.clientSecret = null;
-
-  // 7. Code flow using client assertion
-  code_config_clientAssertion = JSON.parse(JSON.stringify(code_config));
-  code_config_clientAssertion.thumbprint = test_parameters.thumbprint;
-  code_config_clientAssertion.privatePEMKey = test_parameters.privatePEMKey;
-  code_config_clientAssertion.clientSecret = null;  
-
   /****************************************************************************
    *  Tenant specific endpoint configurations
    ***************************************************************************/
@@ -203,22 +187,6 @@ var apply_test_parameters = (done) => {
   // 2. common endpoint with wrong client secret
   hybrid_config_common_endpoint_wrong_secret = JSON.parse(JSON.stringify(config_template_common_endpoint));
   hybrid_config_common_endpoint_wrong_secret.clientSecret = 'wrong_secret';  
-  // 3. Hybird flow using client assertion with invalid privatePEMKey
-  hybrid_config_clientAssertion_invalid_pemKey = JSON.parse(JSON.stringify(hybrid_config));
-  hybrid_config_clientAssertion_invalid_pemKey.thumbprint = test_parameters.thumbprint;
-  hybrid_config_clientAssertion_invalid_pemKey.privatePEMKey = 'invalid private pem key';
-  hybrid_config_clientAssertion_invalid_pemKey.clientSecret = null;
-  // 4. hybrid flow using client assertion with wrong thumbprint
-  hybrid_config_clientAssertion_wrong_thumbprint = JSON.parse(JSON.stringify(hybrid_config));
-  hybrid_config_clientAssertion_wrong_thumbprint.thumbprint = 'wrongThumbprint';
-  hybrid_config_clientAssertion_wrong_thumbprint.privatePEMKey = test_parameters.privatePEMKey;
-  hybrid_config_clientAssertion_wrong_thumbprint.clientSecret = null;
-  // 5. hybrid flow using client assertion with unregistered privatePEMKey
-  var unregistered_privatePEMKey = fs.readFileSync(__dirname + '/../resource/private.pem', 'utf8');
-  hybrid_config_clientAssertion_unregistered_pemKey = JSON.parse(JSON.stringify(hybrid_config));
-  hybrid_config_clientAssertion_unregistered_pemKey.thumbprint = test_parameters.thumbprint;
-  hybrid_config_clientAssertion_unregistered_pemKey.privatePEMKey = unregistered_privatePEMKey;
-  hybrid_config_clientAssertion_unregistered_pemKey.clientSecret = null;
   done();  
 };
 
@@ -235,43 +203,21 @@ var checkResult = (test_app_config, arity, done) => {
       var usernamebox = driver.findElement(By.name('loginfmt'));
       usernamebox.sendKeys(test_parameters.username);
       usernamebox.sendKeys(webdriver.Key.ENTER);
+      driver.sleep(LOGIN_WAITING_TIME);
       var passwordbox = driver.findElement(By.name('passwd'));
       passwordbox.sendKeys(test_parameters.password);
       driver.sleep(LOGIN_WAITING_TIME);
       passwordbox = driver.findElement(By.name('passwd'));
       passwordbox.sendKeys(webdriver.Key.ENTER);
       first_time = false;
+      driver.findElement(By.id('idSIButton9')).then((element)=>{element.click();}, () => {});
     }
+  }).then(() => {
+    driver.findElement(By.id('idBtn_Back')).then((element)=>{element.click();}, () => {});
   }).then(() => {
     driver.wait(until.titleIs('result'), 10000);
     driver.findElement(By.id('status')).getText().then((text) => { 
       expect(text).to.equal('succeeded');
-    });
-    driver.findElement(By.id('oid')).getText().then((text) => {
-      // arity 3 means we are using function(iss, sub, done), so there is no profile.oid
-      if (arity !== 3)  
-        expect(text).to.equal(test_parameters.oid);
-      else
-        expect(text).to.equal('none');
-    });
-    driver.findElement(By.id('upn')).getText().then((text) => {
-      // arity 3 means we are using function(iss, sub, done), so there is no profile.displayName
-      if (arity !== 3) 
-        expect(text).to.equal(test_parameters.username);
-      else
-        expect(text).to.equal('none');
-    });
-    driver.findElement(By.id('access_token')).getText().then((text) => { 
-      if (arity >= 6)
-        expect(text).to.equal('exists');
-      else
-        expect(text).to.equal('none');
-    });
-    driver.findElement(By.id('refresh_token')).getText().then((text) => { 
-      if (arity >= 6)
-        expect(text).to.equal('exists');
-      else
-        expect(text).to.equal('none');
       server.shutdown(done); 
     });
   });
@@ -304,48 +250,6 @@ var checkInvalidResult = (test_app_config, done) => {
       expect(text).to.equal('failed');
       server.shutdown(done);
     });
-  });
-};
-
-var checkResultForPromptAndHint = (test_app_config, authenticate_opt, done) => {
-  var server = create_app(test_app_config, authenticate_opt, 8);
-
-  if (!driver)
-    driver = chromedriver.get_driver(); 
-
-  driver.get('http://localhost:3000/login')
-  .then(() => {
-    if (authenticate_opt.domain_hint === 'live.com') {
-      // we should have come to the login page for live.com
-      driver.wait(until.titleIs('Sign in to your Microsoft account'), 10000);
-    } else if (authenticate_opt.prompt) {
-      // without domain_hint, we will come to the generic login page
-      driver.wait(until.titleIs('Sign in to your account'), 10000);
-      if (!authenticate_opt.login_hint) {
-        // if there is no login_hint, then we have to fill the username portion  
-        var usernamebox = driver.findElement(By.name('login'));
-        usernamebox.sendKeys(test_parameters.username);
-      }
-      
-      var passwordbox = driver.findElement(By.name('passwd'));
-      passwordbox.sendKeys(test_parameters.password);
-      driver.sleep(LOGIN_WAITING_TIME);
-      passwordbox.sendKeys(webdriver.Key.ENTER);
-    }
-  }).then(() => {
-    if (authenticate_opt.domain_hint === 'live.com') {
-      server.shutdown(done);
-    } else {
-      if (authenticate_opt.prompt === 'consent') {
-        // consent
-        driver.findElement(By.id('cred_accept_button')).click();
-      }
-      driver.wait(until.titleIs('result'), 10000);
-      driver.findElement(By.id('status')).getText().then((text) => { 
-        expect(text).to.equal('succeeded');
-        server.shutdown(done); 
-      });
-    }
   });
 };
 
@@ -435,20 +339,6 @@ describe('oidc v1 positive other test', function() {
   }); 
 
   /****************************************************************************
-   *  Test client assertion
-   ***************************************************************************/
-  
-  // hybrid flow using client assertion
-  it('should succeed', function(done) {
-    checkResult(hybrid_config_clientAssertion, 8, done);
-  }); 
-
-  // code flow using client assertion
-  it('should succeed', function(done) {
-    checkResult(code_config_clientAssertion, 8, done);
-  }); 
-
-  /****************************************************************************
    *  Test various response type for common endpoint
    ***************************************************************************/
 
@@ -510,26 +400,6 @@ describe('oidc v1 positive other test', function() {
   });
 });
 
-describe('oidc v1 login/domain hint and prompt test', function() {
-  this.timeout(TEST_TIMEOUT);
-
-  it('should succeed with login page showing up and username prefilled', function(done) {
-    checkResultForPromptAndHint(hybrid_config, { login_hint: test_parameters.username, prompt: 'login' }, done);
-  }); 
-
-  it('should succeed with login page showing up and username prefilled and consent page showing up later', function(done) {
-    checkResultForPromptAndHint(hybrid_config, { login_hint: test_parameters.username, prompt: 'consent' }, done);
-  }); 
-
-  it('should succeed without login page showing up', function(done) {
-    checkResultForPromptAndHint(hybrid_config, { login_hint: test_parameters.username }, done);
-  }); 
-
-  it('should succeed with live.com login page showing up', function(done) {
-    checkResultForPromptAndHint(hybrid_config, { domain_hint: 'live.com' }, done);
-  }); 
-});
-
 describe('oidc v1 negative test', function() {
   this.timeout(TEST_TIMEOUT);
 
@@ -546,21 +416,6 @@ describe('oidc v1 negative test', function() {
   // Wrong clientSecret
   it('should fail with wrong client secret', function(done) {
     checkInvalidResult(hybrid_config_common_endpoint_wrong_secret, done);
-  });
-
-  // invalid privatePEMKey
-  it('should fail with invalid privatePEMKey', function(done) {
-    checkInvalidResult(hybrid_config_clientAssertion_invalid_pemKey, done);
-  });
-
-  // wrong thumbprint
-  it('should fail with wrong thumbprint', function(done) {
-    checkInvalidResult(hybrid_config_clientAssertion_wrong_thumbprint, done);
-  });
-
-  // unregistered privatePEMKey
-  it('should fail with unregistered privatePEMKey', function(done) {
-    checkInvalidResult(hybrid_config_clientAssertion_unregistered_pemKey, done);
   });
 
   it('close service', function(done) {
