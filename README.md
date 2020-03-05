@@ -1,6 +1,7 @@
 
 # Microsoft Azure Active Directory Passport.js Plug-In
-=============
+
+---
 
 _passport-azure-ad_ is a collection of [Passport](http://passportjs.org/) Strategies 
 to help you integrate with Azure Active Directory. It includes OpenID Connect, 
@@ -16,7 +17,8 @@ and with [Microsoft Active Directory Federation Services](http://en.wikipedia.or
 _passport-azure-ad_ has a known security vulnerability affecting versions <1.4.6 and 2.0.0. Please update to >=1.4.6 or >=2.0.1 immediately. For more details, see the [security notice](https://github.com/AzureAD/passport-azure-ad/blob/master/SECURITY-NOTICE.MD).
 
 ## 2. Versions
-Current version - 3.0.8  
+Current version - 4.0.0  
+Latest version that support's SAML and WSFED - 2.0.3
 Minimum  recommended version - 1.4.6  
 You can find the changes for each version in the [change log](https://github.com/AzureAD/passport-azure-ad/blob/master/CHANGELOG.md).
 
@@ -41,7 +43,7 @@ BearerStrategy uses Bearer Token protocol to protect web resource/api. It works 
 User sends a request to the protected web api which contains an access_token in either the authorization header or body. Passport extracts and validates the access_token, and propagates the claims in access_token to the verify callback and let the framework finish the remaining authentication procedure. On successful authentication, passport adds the user information to `req.user` and passes it to the next middleware, which is usually the business logic of the web resource/api. In case of error, passport sends back an unauthorized response.
 
 
-We support AAD v1, v2 and B2C tenants for both strategies. Please check out section 7 for the samples. You can manage v1 tenants and register applications at https://manage.windowsazure.com. For v2 tenants and applications, you should go to https://apps.dev.microsoft.com. For B2C tenants, go to https://manage.windowsazure.com and click 'Manage B2C settings' to register applications and policies. 
+We support AAD v1, v2 and B2C tenants for both strategies. Please check out [section 8](#8-samples-and-documentation) for the samples. You can manage v1 tenants and register applications at https://manage.windowsazure.com. For v2 tenants and applications, you should go to https://apps.dev.microsoft.com. For B2C tenants, go to https://manage.windowsazure.com and click 'Manage B2C settings' to register applications and policies. 
 
 ### 5.1 OIDCStrategy
 
@@ -64,11 +66,14 @@ passport.use(new OIDCStrategy({
     passReqToCallback: config.creds.passReqToCallback,
     scope: config.creds.scope,
     loggingLevel: config.creds.loggingLevel,
+    loggingNoPII: config.creds.loggingNoPII,
     nonceLifetime: config.creds.nonceLifetime,
     nonceMaxAmount: config.creds.nonceMaxAmount,
     useCookieInsteadOfSession: config.creds.useCookieInsteadOfSession,
+    cookieSameSite: config.creds.cookieSameSite, // boolean
     cookieEncryptionKeys: config.creds.cookieEncryptionKeys,
     clockSkew: config.creds.clockSkew,
+    proxy: { port: 'proxyport', host: 'proxyhost', protocol: 'http' },
   },
   function(iss, sub, profile, accessToken, refreshToken, done) {
     if (!profile.oid) {
@@ -134,9 +139,9 @@ passport.use(new OIDCStrategy({
   
   Must be a https url string, unless you set `allowHttpForRedirectUrl` to true. This is the reply URL registered in AAD for your app. Production environment should always use https for `redirectUrl`.
 
-* `passReqToCallback`  (Required)
+* `passReqToCallback`  (Conditional)
 
-  Whether you want to use `req` as the first parameter in the verify callback. See section 5.1.1.3 for more details.
+  Required to set to true if using `req` as the first paramter in the verify function, default value is false. See section 5.1.1.3 for more details.
 
 * `allowHttpForRedirectUrl`  (Conditional) 
   
@@ -150,7 +155,7 @@ passport.use(new OIDCStrategy({
 
   For non-B2C tenant: If `responseType` is not `id_token`, developer must provide either `clientSecret`, or `thumbprint` and `privatePEMKey`. We use `clientSecret` if it is provided; otherwise we use `thumbprint` and `privatePEMKey` for client assertion flow.
 
-  `clientSecret` is the app key of your app in AAD. For B2C, the app key sometimes contains \, please replace \ with two \'s in the app key, otherwise \ will be treated as the beginning of an escaping character.
+  `clientSecret` is the app key of your app in AAD. For B2C, the app key sometimes contains \\, please replace \ with two \\'s in the app key, otherwise \ will be treated as the beginning of an escaping character.
 
 * `thumbprint`  (Conditional)
 
@@ -182,7 +187,8 @@ passport.use(new OIDCStrategy({
   Passport-azure-ad saves state and nonce in session by default for validation purpose. If `useCookieInsteadOfSession` is set to true, passport-azure-ad will encrypt the state/nonce and
   put them into cookie instead. This is helpful when we want to be completely session-free, in other words, when you use { session: false } option in passport.authenticate function.
   If `useCookieInsteadOfSession` is set to true, you must provide `cookieEncryptionKeys` for cookie encryption and decryption.
-
+* `cookieSameSite` (Conditional)
+    If set to true, Passport will add the Same-Site: None header to cookies set by the lib, specifically to validate state and nonce. 
 * `cookieEncryptionKeys`  (Conditional)
 
   If `useCookieInsteadOfSession` is set to true, you must provide `cookieEncryptionKeys`. It is an array of the following format: [ {key: '...', 'iv': '...' }, {key: '...', 'iv': '...' }, ...]. key could be any string of length 32, and iv could be any string of length 12. We always use the first set of key/iv to encrypt cookie, but we try all the key/iv to decrypt cookie.
@@ -195,6 +201,10 @@ passport.use(new OIDCStrategy({
 * `loggingLevel`  (Optional)
 
   Logging level. 'info', 'warn' or 'error'.
+
+* `loggingNoPII`  (Optional)
+
+  If this is set to true, no personal information such as tokens and claims will be logged. The default value is true.
   
 * `nonceLifetime`  (Optional)
   
@@ -371,7 +381,7 @@ the strategy.
 
 * `domain_hint`: if you want to specify the domain that the user should use to sign in. This option is not supported for B2C tenant.
 
-* `login_hint`: if you want to prefill the username with a given value in the login page. The value should be the `upn` of an user, not the email (most times they are the same though). 
+* `login_hint`: if you want to prefill the username with a given value in the login page. The value should be the `upn` of a user, not the email (most times they are the same though). 
 
 * `prompt`: v1 and v2 endpoint support `login`, `consent` and `admin_consent`; B2C endpoint only supports `login`. 
 
@@ -402,10 +412,7 @@ Passport framework uses session to keep a persistent login session. As a plug in
     ...
   });
 
-  // must pass the response object to passport.authenticate, since we will use response object to set cookie
-  app.get('/login', function(req, res, next) => {
-    passport.authenticate('azuread-openidconnect', { session: false, response: res })(req, res, next);
-  });
+  app.get('/login', passport.authenticate('azuread-openidconnect', { session: false }));
 
 ```
 
@@ -430,6 +437,7 @@ var options = {
   allowMultiAudiencesInToken: config.creds.allowMultiAudiencesInToken,
   audience: config.creds.audience,
   loggingLevel: config.creds.loggingLevel,
+  loggingNoPII: config.creds.loggingNoPII,
   clockSkew: config.creds.clockSkew,
   scope: config.creds.scope
 };
@@ -486,9 +494,9 @@ var bearerStrategy = new BearerStrategy(options,
 
   The client ID of your application in AAD (Azure Active Directory)
 
-* `passReqToCallback`  (Required)
+* `passReqToCallback`  (Conditional)
 
-  Whether you want to use `req` as the first parameter in the verify callback. See section 5.2.1.3 for more details.
+  Required to set to true if using `req` as the first paramter in the verify function, default value is false. See section 5.2.1.3 for more details.
   
 * `isB2C`  (Conditional)
 
@@ -500,7 +508,7 @@ var bearerStrategy = new BearerStrategy(options,
 
 * `validateIssuer`  (Conditional)
   
-  Required to set to false if you don't want to validate issuer, default value is true. We validate the `iss` claim in id_token against user provided `issuer` values and the issuer value we get from tenant-specific endpoint. If you use common endpoint for `identityMetadata` and you want to validate issuer, then you must provide `issuer`.
+  Required to set to false if you don't want to validate issuer, default value is true. We validate the `iss` claim in id_token against user provided `issuer` values and the issuer value we get from tenant-specific endpoint. If you use common endpoint for `identityMetadata` and you want to validate issuer, then you must provide `issuer`, or provide `tenantIdOrName` in passport.authenticate.
   
 * `issuer`  (Conditional)
   
@@ -523,10 +531,18 @@ var bearerStrategy = new BearerStrategy(options,
 
   Logging level. 'info', 'warn' or 'error'.
 
+* `loggingNoPII`  (Optional)
+
+  If this is set to true, no personal information such as tokens and claims will be logged. The default value is true.
+
 * `clockSkew`  (Optional)
 
   This value is the clock skew (in seconds) allowed in token validation. It must be a positive integer. The default value is 300 seconds.
 
+ * `proxy` (optional)
+
+  This value is the proxy settings object:  { port: 'proxyport', host: 'proxyhost', protocol: 'http' }
+  
 ##### 5.2.1.3 Verify callback
 
 If you set `passReqToCallback` option to false, you can use the following verify callback
@@ -552,6 +568,8 @@ In the following example, we are using passport to protect '/api/tasks'. User se
 #### 5.2.3 Options available for `passport.authenticate`
 
 * `session`: if you don't want a persistent login session, you can use `session: false`. The default value is true.
+
+* `tenantIdOrName`: if you use common endpoint, you can use this option to dynamically provide the tenant.
 
 Example:
 
@@ -583,8 +601,7 @@ First you need to register one application in v1 tenant, one in v2 tenant and on
 
 For the v2 application, you should register it at https://apps.dev.microsoft.com/ instead of Azure Portal.
 
-For the B2C application, create four policies named 'B2C_1_signin', 'B2C_1_signup', 'B2C_1_updateprofile', 
-'B2C_1_resetpassword'. For each policy, select 'Local Account' as the identity provider, and select the
+For the B2C application, create policies named 'B2C_1_signin', 'B2C_1_signup'. For each policy, select 'Local Account' as the identity provider, and select the
 following:
 
 * 'B2C_1_signup': 
@@ -593,25 +610,9 @@ following:
 
   * Application claims: 'Display Name', Email Addresses', 'Given Name', 'Identity Provider', 'Surname', 'Users Object ID'
 
-* 'B2C_1_updateprofile': 
-
-  * Profile attributes: 'Display Name', 'Given Name', 'Surname'
-
-  * Application claims: 'Display Name', Email Addresses', 'Given Name', 'Identity Provider', 'Surname', 'Users Object ID'
-
 * 'B2C_1_signin': 
 
   * Application claims: 'Display Name', Email Addresses', 'Given Name', 'Identity Provider', 'Surname', 'Users Object ID'
-
-* 'B2C_1_signin_acr': 
-
-  * Application claims: 'Display Name', Email Addresses', 'Given Name', 'Identity Provider', 'Surname', 'Users Object ID'
-
-  * After creating this policy, go the blade of this policy, click 'Edit' and then 'Token, session & SSO config'. Now switch the 'Claim representing policy ID' from 'tfp' to 'acr' and save the change.
-
-* 'B2C_1_resetpassword': 
-
-  * Application claims: 'Email Addresses', 'Given Name', 'Users Object ID'
 
 You will also need to click the 'Run now' button in the 'B2C_1_signup' blade to create an user.
 
@@ -622,7 +623,7 @@ access token for the scope, and use BearerStrategy to validate the scope. Note f
 
 #### 6.2.2. Fill the test parameters 
 
-Open `test/End_to_end_test/script.js`, set `is_test_parameters_completed` parameter to true. For `test_parameters` variable, fill in the tenant id/client id/client secret of your applications, and the username/password of your application user. The 'oid' value is the object id of your application user. To find the 'oid' value, go to your tenant, click 'Users and groups', find your user and click it. The Object ID value will show up in the new blade.
+Open `test/End_to_end_test/script.js`, set `is_test_parameters_completed` parameter to true. For `test_parameters` variable, fill in the tenant id/client id/client secret of your applications, and the username/password of your application user. 
 
 For `thumbprint` and `privatePEMKey` parameters, you need to specify a certificate for your app and register the public key in Azure Active Directory. `thumbprint` is the base64url format of the thumbprint of the public key, and `privatePEMKey` is the private pem key string. For a v1 tenant, you can follow [this post](http://www.andrewconnell.com/blog/user-app-app-only-permissions-client-credentials-grant-flow-in-azure-ad-office-365-apis) to generate a certificate and register the public key. For a v2 tenant, you can go to your application page in the [v2 portal](https://apps.dev.microsoft.com) and click `Generate New Key Pair`. A certificate will be generated for you to download. The corresponding public key is automatically registered in this case.  
 
@@ -639,7 +640,29 @@ Type the following commands to run the tests:
 
 Tests will run automatically and in the terminal you can see how many tests are passing/failing. More details can be found [here](https://github.com/AzureAD/passport-azure-ad/blob/master/contributing.md).
 
-## 7. Samples and Documentation
+## 7. Logging
+#### Personal Identifiable Information (PII) & Organizational Identifiable Information (OII)
+
+By default, passport-azure-ad logging does not capture or log any PII or OII. The library allows app developers to turn this on by configuring `loggingNoPII` in the config options. By turning on PII or OII, the app takes responsibility for safely handling highly-sensitive data and complying with any regulatory requirements.
+
+```javascript
+//PII or OII logging disabled. Default Logger does not capture any PII or OII.
+var options = {
+  ...
+  loggingNoPII: true,
+  ...
+};
+
+//PII or OII logging enabled
+var options = {
+  ...
+  loggingNoPII: false,
+  ...
+};
+```
+
+
+## 8. Samples and Documentation
 
 [We provide a full suite of sample applications and documentation on GitHub](https://azure.microsoft.com/en-us/documentation/samples/?service=active-directory) 
 to help you get started with learning the Azure Identity system. This includes 
@@ -649,7 +672,7 @@ OAuth2, OpenID Connect, Graph API, and other awesome features.
 
 Azure Identity samples for this plug-in can be found in the following links:
 
-### 7.1 Samples for [OpenID connect strategy](https://github.com/AzureAD/passport-azure-ad/blob/master/lib/oidcstrategy.js)
+### 8.1 Samples for [OpenID connect strategy](https://github.com/AzureAD/passport-azure-ad/blob/master/lib/oidcstrategy.js)
 
 * [sample using v1 endpoint](https://github.com/AzureADQuickStarts/WebApp-OpenIDConnect-NodeJS)
 
@@ -657,7 +680,7 @@ Azure Identity samples for this plug-in can be found in the following links:
 
 * [sample using B2C tenant](https://github.com/AzureADQuickStarts/B2C-WebApp-OpenIDConnect-NodeJS)
 
-### 7.2 Samples for [Bearer strategy](https://github.com/AzureAD/passport-azure-ad/blob/master/lib/bearerstrategy.js)
+### 8.2 Samples for [Bearer strategy](https://github.com/AzureAD/passport-azure-ad/blob/master/lib/bearerstrategy.js)
 
 * [sample using v1 endpoint](https://github.com/AzureADQuickStarts/WebAPI-Bearer-NodeJS)
 
@@ -665,34 +688,34 @@ Azure Identity samples for this plug-in can be found in the following links:
 
 * [sample using B2C tenant](https://github.com/AzureADQuickStarts/B2C-WebApi-Nodejs)
 
-## 8. Community Help and Support
+## 9. Community Help and Support
 
 We leverage [Stack Overflow](http://stackoverflow.com/) to work with the community on supporting Azure Active Directory and its SDKs, including this one. We highly recommend you ask your questions on Stack Overflow (we're all on there!) Also browser existing issues to see if someone has had your question before. 
 
-We recommend you use the "adal" tag so we can see it! Here is the latest Q&A on Stack Overflow for ADAL: [http://stackoverflow.com/questions/tagged/adal](http://stackoverflow.com/questions/tagged/adal)
+We recommend you use the "msal" tag so we can see it! Here is the latest Q&A on Stack Overflow for MSAL: [http://stackoverflow.com/questions/tagged/msal](http://stackoverflow.com/questions/tagged/msal)
 
-## 9. Security Reporting
+## 10. Security Reporting
 
 If you find a security issue with our libraries or services please report it to [secure@microsoft.com](mailto:secure@microsoft.com) with as much detail as possible. Your submission may be eligible for a bounty through the [Microsoft Bounty](http://aka.ms/bugbounty) program. Please do not post security issues to GitHub Issues or any other public site. We will contact you shortly upon receiving the information. We encourage you to get notifications of when security incidents occur by visiting [this page](https://technet.microsoft.com/en-us/security/dd252948) and subscribing to Security Advisory Alerts.
 
-## 10. Contributing
+## 11. Contributing
 
 All code is licensed under the MIT license and we triage actively on GitHub. We enthusiastically welcome contributions and feedback. You can clone the repo and start contributing now. 
 
 More details [about contribution](https://github.com/AzureAD/passport-azure-ad/blob/master/contributing.md) 
 
-## 11. Releases
+## 12. Releases
 
 Please check the [releases](https://github.com/AzureAD/passport-azure-ad/releases) for updates.
 
-## 12. Acknowledgements
+## 13. Acknowledgements
 
 The code is based on Henri Bergius's [passport-saml](https://github.com/bergie/passport-saml) library and Matias Woloski's [passport-wsfed-saml2](https://github.com/auth0/passport-wsfed-saml2) library as well as Kiyofumi Kondoh's [passport-openid-google](https://github.com/kkkon/passport-google-openidconnect).
 
-## 13. License
+## 14. License
 Copyright (c) Microsoft Corp.  All rights reserved. Licensed under the MIT License;
 
-## 14. Microsoft Open Source Code of Conduct
+## 15. Microsoft Open Source Code of Conduct
 
 We Value and Adhere to the Microsoft Open Source Code of Conduct
 

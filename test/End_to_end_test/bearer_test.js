@@ -29,6 +29,7 @@
 
 var chromedriver = require('./driver');
 var service = chromedriver.get_service();
+var error_handler = chromedriver.error_handler;
 var webdriver = chromedriver.webdriver;
 var By = webdriver.By;
 var until = webdriver.until;
@@ -37,7 +38,7 @@ var chai = require('chai');
 var expect = chai.expect;
 
 const TEST_TIMEOUT = 1000000; // 1000 seconds
-const LOGIN_WAITING_TIME = 3000; // 3 second
+const LOGIN_WAITING_TIME = 1000; // 1 second
 
 /******************************************************************************
  *  configurations needed
@@ -50,6 +51,7 @@ server_config_wrong_issuer, server_config_wrong_identityMetadata,
 server_config_wrong_audience, server_config_wrong_issuer_no_validateIssuer,
 server_config_multiple_audience,
 server_config_common_endpoint, server_config_common_endpoint_with_req,
+server_config_common_endpoint_dynamic_tenant,
 server_config_common_endpoint_allow_multiAud, server_config_common_endpoint_wrong_issuer,
 server_config_common_endpoint_wrong_audience,
 server_config_common_endpoint_wrong_issuer_no_validateIssuer = {};
@@ -130,6 +132,10 @@ var apply_test_parameters = (done) => {
   server_config_common_endpoint.identityMetadata = 'https://login.microsoftonline.com/common/.well-known/openid-configuration';
   server_config_common_endpoint.issuer = 'https://sts.windows.net/' + test_parameters.tenantID + '/';
 
+  server_config_common_endpoint_dynamic_tenant = JSON.parse(JSON.stringify(server_config));
+  server_config_common_endpoint_dynamic_tenant.identityMetadata = 'https://login.microsoftonline.com/common/.well-known/openid-configuration';
+  server_config_common_endpoint_dynamic_tenant.tenantIdOrName = test_parameters.tenantID;
+
   server_config_common_endpoint_with_req = JSON.parse(JSON.stringify(server_config_common_endpoint));
   server_config_common_endpoint_with_req.passReqToCallback = true;
 
@@ -163,28 +169,36 @@ var get_token_for_resource = (resource, done) => {
     // we only need to enter the user name and password if we haven't logged in yet
     if (!client_already_logged_in) {
       driver.wait(until.titleIs('Sign in to your account'), 10000); 
-      var usernamebox = driver.findElement(By.name('login'));
+      var usernamebox = driver.findElement(By.name('loginfmt'));
       usernamebox.sendKeys(test_parameters.username);
+      usernamebox.sendKeys(webdriver.Key.ENTER);
       var passwordbox = driver.findElement(By.name('passwd'));
       passwordbox.sendKeys(test_parameters.password);
       driver.sleep(LOGIN_WAITING_TIME);
+      passwordbox = driver.findElement(By.name('passwd'));
       passwordbox.sendKeys(webdriver.Key.ENTER);
       client_already_logged_in = true;
     }
   }).then(() => {
-    done();
+    driver.wait(until.titleIs('Sign in to your account'), 5000).then(
+      ()=>{ driver.findElement(By.id('idBtn_Back')).click().then(()=>{done();}); },
+      ()=>{ done();}
+    );
   });
 };
 
 var checkResult = (test_app_config, result, done) => {
   var server = require('./app/api')(test_app_config);
-
   driver.get('http://localhost:3000/callApi')
   .then(() => {
-    driver.wait(until.titleIs('result'), 10000);
+    driver.wait(until.titleIs('result'), 10000).catch((ex) => {
+      error_handler(ex, server, done);
+    });
     driver.findElement(By.id('status')).getText().then((text) => { 
       expect(text).to.equal(result);
       server.shutdown(done);
+    }).catch((ex) => {
+      error_handler(ex, server, done);
     });
   });
 };
@@ -242,6 +256,10 @@ describe('bearer test', function() {
 
   it('should succeed', function(done) {
     checkResult(server_config_common_endpoint, 'succeeded', done);
+  });
+
+  it('should succeed', function(done) {
+    checkResult(server_config_common_endpoint_dynamic_tenant, 'succeeded', done);
   });
 
   it('should succeed', function(done) {
